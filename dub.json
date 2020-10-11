@@ -1,0 +1,12 @@
+{
+	"name": "sparse-ecs-d",
+	"description": "An ecs library implementation heavily influenced by entt",
+	"importPaths": ["source"],
+	"sourcePaths": ["source"],
+	"targetPath": "bin",
+	"license": "GPL-3.0",
+	"targetType": "library",
+	"dependencies": {
+		"aurorafw:unit": "~>0.0.1-alpha.4"
+	}
+}

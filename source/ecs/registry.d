@@ -1,4 +1,4 @@
-module registry;
+module ecs.registry;
 
 import std.exception : basicExceptionCtors;
 

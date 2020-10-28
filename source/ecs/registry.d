@@ -6,6 +6,21 @@ import ecs.entity;
 version(unittest) import aurorafw.unit.assertion;
 
 
+/**
+ * Basic exception for PoolData
+ */
+public class PoolDataException : Exception
+{
+	mixin basicExceptionCtors;
+}
+
+
+///
+public final class PoolDoesNotExistException : PoolDataException
+{
+	mixin basicExceptionCtors;
+}
+
 
 /**
  * BasicRegistry manages all entities. It's responsible for creating, discarding,
@@ -20,14 +35,26 @@ version(unittest) import aurorafw.unit.assertion;
 public final class BasicRegistry(T, T idBitAmount)
 	if(isEntityType!T)
 {
-	import std.container : Array;
 	import std.conv : to;
 	import std.exception : enforce;
+	import std.meta : allSatisfy;
+	import std.traits : Fields;
+	import ecs.component : isComponent, componentId;
+	import ecs.pool : Pool;
+	import ecs.sparseset : SparseSet;
 
 	mixin genEntityBitMasks!(T, idBitAmount);
 
 public:
 	this() {}
+
+
+	// TODO: containsAll
+	// TODO: containsAny
+	// TODO: modifyOrAdd
+	// TODO: getIfContains (must return null ptr with failure)
+	// TODO: iterators
+	// TODO: entitiesWith (idealy returns an iterator)
 
 
 	/**
@@ -60,6 +87,7 @@ public:
 	void discard(const inout(T) entity)
 	{
 		enforce!InvalidEntityException(isValid(entity), "Cannot discard entity with invalid id!");
+		removeAll(entity);
 		const id = idOf(entity);
 		const batch = updateBatch(entity);
 		entities[id] = cast(T)(queue | (batch << entityShift));
@@ -159,6 +187,195 @@ public:
 	}
 
 
+	/**
+	 * Add a component to an entity. \
+	 * \
+	 * You cannot add a component to an enity which already contains a component
+	 *     of the same type.
+	 *
+	 * Params:
+	 *     entity = a valid entity.
+	 *     component = a valid component to add.
+	 */
+	@safe pure
+	void add(C)(const inout(T) entity, const inout(C) component)
+		if (isComponent!C)
+	{
+		enforce!InvalidEntityException(isValid(entity), "Cannot add a component to an invalid entity");
+		immutable cid = componentId!C;
+		auto ptr = cid in pools;
+
+		if (ptr is null)
+		{
+			pools[cid] = PoolData(
+				new Pool!(T, idBitAmount, C)(),
+				delegate void(SparseSet!(T, idBitAmount) pool, const inout(T) entity) @safe pure {
+					(cast(Pool!(T, idBitAmount, C))(pool)).remove(entity);
+				}
+			);
+		}
+		else
+		{
+			enforce!EntityInPoolException(!(*ptr).pool.contains(entity), "Cannot add a component to an entity already in the Pool!");
+		}
+
+		Pool!(T, idBitAmount, C) pool = cast(Pool!(T, idBitAmount, C))(pools[cid].pool);
+		pool.add(entity, component);
+	}
+
+
+	///
+	@safe pure
+	void add(C)(const inout(T) entity, Fields!C args)
+		if (isComponent!C)
+	{
+		add(entity, C(args));
+	}
+
+
+	/**
+	 * Get a component from an entity.
+	 *
+	 * Params:
+	 *     C = valid component to get.
+	 *     entity = valid entity to search.
+	 *
+	 * Returns: a pointer to the respective component.
+	 */
+	@safe pure
+	C* get(C)(const inout(T) entity)
+		if (isComponent!C)
+	{
+		enforce!InvalidEntityException(isValid(entity), "Cannot get a component from an invalid entity!");
+		enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot get a component from a non existent Pool!");
+		enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot get a component from an entity which does not contain it!");
+		return (cast(Pool!(T, idBitAmount, C))(pools[componentId!C].pool)).get(entity);
+	}
+
+
+	/**
+	 * Checks if an entity, valid or not, contains a component. \
+	 * \
+	 * If the entity isn't valid or the component pool doesn't exist or the
+	 *     entity does not contain it, it returs `false`!
+	 *
+	 * Params:
+	 *     C = valid component to check.
+	 *     entity = entity to search.
+	 *
+	 * Returns: `true` if the entity contains the component, `false` otherwise.
+	 */
+	@safe pure
+	bool contains(C)(const inout(T) entity)
+		if (isComponent!C)
+	{
+		return isValid(entity)
+				&& componentId!C in pools
+				&& pools[componentId!C].pool.contains(entity);
+	}
+
+
+	///
+	@safe pure
+	bool contains(C ...)(const inout(T) entity)
+		if (allSatisfy!(isComponent, C))
+	{
+		foreach (component; C)
+		{
+			if (!contains!component(entity))
+				return false;
+		}
+		return true;
+	}
+
+
+	/**
+	 * Remove a component from an entity.
+	 *
+	 * Params:
+	 *     C = valid component to remove.
+	 *     entity = valid entity containing C.
+	 */
+	@safe pure
+	void remove(C)(const inout(T) entity)
+		if (isComponent!C)
+	{
+		// TODO: just ignore this an do nothing?
+		enforce!InvalidEntityException(isValid(entity), "Cannot remove a component from an invalid entity!");
+		enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot remove a component from a non existent Pool!");
+		enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot remove a component from an entity which does not contain it!");
+		pools[componentId!C].remove(pools[componentId!C].pool, entity);
+	}
+
+
+	/**
+	 * Remove every component from an entity.
+	 *
+	 * Params: entity = valid entity to remove all components from.
+	 */
+	@trusted pure
+	void removeAll(const inout(T) entity)
+	{
+		// TODO: delete component pool with 0 entities?
+		enforce!InvalidEntityException(isValid(entity), "Cannot remove components from an invalid entity!");
+		foreach (ref PoolData poolData; pools)
+		{
+			if (poolData.pool.contains(entity))
+			{
+				poolData.remove(poolData.pool, entity);
+			}
+		}
+	}
+
+
+	/**
+	 * Edit the data of a component. \
+	 * The data must be insert by the same order that is declared in the
+	 *     component.
+	 *
+	 * ```d
+	 * @component struct Position { float x, y; }
+	 * // ...
+	 * registry.modify!Position(e0, 2, 3); // first is x then y
+	 * assert(*registry.get!Position(e0) == Position(2, 3));
+	 * ```
+	 *
+	 * The program won't compile when trying to pass a variable which doesn't
+	 *     exist in the component or if it exists it's not in the correct spot.
+	 *
+	 * ```d
+	 * @component struct Foo { string x; float y; }
+	 * // ...
+	 * assert( __traits(compiles, registry.modify!Foo(e0, "nice!", 3));
+	 * assert(!__traits(compiles, registry.modify!Foo(e0, 2, 3));
+	 * assert(!__traits(compiles, registry.modify!Foo(e0, 2, "not valid"));
+	 * ```
+	 *
+	 * Params:
+	 *     C = valid component to modify.
+	 *     entity = valid entity containg C.
+	 *     args = all C fields by order.
+	 */
+	@safe pure
+	void modify(C)(const inout(T) entity, Fields!C args)
+		if (isComponent!C)
+	{
+		import std.traits : FieldNameTuple;
+		import std.conv : to;
+
+		enforce!InvalidEntityException(isValid(entity), "Cannot modify a component from an invalid entity!");
+		enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot modify a component from a non existent Pool!");
+		enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot modify a component from an entity which does not contain it!");
+
+		C* component = get!C(entity);
+
+		foreach (i, fieldName; FieldNameTuple!C)
+		{
+			mixin("component."~fieldName~" = args["~i.to!string~"];");
+		}
+	}
+
+
 private:
 	/**
 	 * Generate a new entity's id. \
@@ -171,12 +388,9 @@ private:
 	@safe pure
 	const(T) spawn()
 	{
+		import std.range : back;
 		enforce!MaximumEntitiesReachedException(entities.length < entityMask, "Maximum entities reached!");
-
-		(() @trusted pure {
-			entities.insertBack(entities.length.to!T);
-		})();
-
+		entities ~= entities.length.to!T;
 		return entities.back;
 	}
 
@@ -220,7 +434,38 @@ private:
 	}
 
 
-	Array!T entities;
+	/**
+	 * Pool data storage struct. PoolData stores a pool of a component as well
+	 *     as a delegate to access the remove function of the same pool. \
+	 * \
+	 * Because we need to store pools in arrays we can't join pools of diferent
+	 *     components in one array. The same applies when using the SparseSet
+	 *     parent class. We can jumble together all the diferent components
+	 *     in one array, but what happens when we want to access them? How can
+	 *     we distiguish a Pool of ComponentA from the Pool of ComponentB
+	 *     without iterating all pools?
+	 * \
+	 * PoolData fixes this issue. We create an associative array of this data
+	 *     structure and to access each of them we use an uniquely generated
+	 *     id of a valid Component. Then we can access the parent class directly
+	 *     and when we want to access the Pool class we cast it easily using
+	 *     the same component id as guidance. \
+	 * \
+	 * The remove function serves a different purpose. What happens when we
+	 *     delete an entity? How do can we delete all components associated with
+	 *     that entity? The remove delegate fixes this. When constructing the
+	 *     PoolData we set the scope to cast the SparseSet to the correct Pool
+	 *     and then we just call the Pool's remove function.
+	 */
+	@safe pure
+	struct PoolData
+	{
+		SparseSet!(T, idBitAmount) pool;
+		@safe pure void delegate(SparseSet!(T, idBitAmount), const inout(T)) remove;
+	}
+
+	T[] entities;
+	PoolData[size_t] pools;
 	T queue = entityNull;
 }
 
@@ -291,6 +536,59 @@ alias Registry8 = BasicRegistry!(ubyte, 4);
 alias Registry = BasicRegistry!(uint, 20);
 
 
+version(unittest)
+{
+	import ecs.component : Component;
+	private @Component struct Position { float x, y; }
+	private @Component struct Velocity { float dx, dy; }
+	private struct NotComponent {}
+}
+
+
+@safe pure
+@("registry: add")
+unittest
+{
+	auto registry = new Registry8();
+	auto e0 = registry.create;
+	auto e1 = registry.create;
+	immutable ubyte invalid = 15;
+
+	auto exceptionIE = expectThrows!InvalidEntityException(registry.add(invalid, Position(2, 4)));
+	assertEquals("Cannot add a component to an invalid entity", exceptionIE.msg);
+
+	registry.add(e0, Position(2, 4));
+
+	auto exceptionEIP = expectThrows!EntityInPoolException(registry.add(e0, Position(2, 4)));
+	assertEquals("Cannot add a component to an entity already in the Pool!", exceptionEIP.msg);
+
+	registry.add(e1, Velocity(6, 24));
+
+	assertTrue(registry.contains!Position(e0));
+	assertFalse(registry.contains!Velocity(e0));
+
+	assertTrue(registry.contains!Velocity(e1));
+	assertFalse(registry.contains!Position(e1));
+
+	assertFalse(__traits(compiles, registry.add(e0, NotComponent())));
+}
+
+
+@safe pure
+@("registry: add syntax sugar")
+unittest
+{
+	auto registry = new Registry8();
+	auto e0 = registry.create;
+
+	registry.add!Position(e0, 2, 4);
+	registry.add!Velocity(e0, 6, 24);
+
+	assertTrue(registry.contains!Position(e0));
+	assertTrue(registry.contains!Velocity(e0));
+}
+
+
 @safe pure
 @("registry: batchOf")
 unittest
@@ -309,6 +607,28 @@ unittest
 
 
 @safe pure
+@("registry: contains")
+unittest
+{
+	import ecs.component : componentId;
+	auto registry = new Registry();
+	auto e0 = registry.create;
+
+	assertFalse(registry.contains!Position(e0));
+
+	registry.add!Position(e0, 1, 1);
+	assertFalse(registry.contains!(Position, Velocity)(e0));
+
+	registry.add!Velocity(e0, 3, 4);
+	assertTrue(registry.contains!(Position, Velocity)(e0));
+
+	registry.discard(e0);
+	assertFalse(registry.contains!(Position, Velocity)(e0));
+	assertFalse(registry.pools[componentId!Position].pool.contains(e0));
+}
+
+
+@safe pure
 @("registry: currentBatchOf")
 unittest
 {
@@ -321,10 +641,23 @@ unittest
 }
 
 
-/**
- * This must be @trusted because std.container : Array is not @safe
- */
-@trusted pure
+@safe pure
+@("registry: discard")
+unittest
+{
+	auto registry = new Registry();
+	const uint invalid = 1;
+	auto exception = expectThrows!InvalidEntityException(registry.discard(invalid));
+	assertEquals("Cannot discard entity with invalid id!", exception.msg);
+
+	auto e0 = registry.create;
+	registry.discard(e0);
+	exception = expectThrows!InvalidEntityException(registry.discard(e0));
+	assertEquals("Cannot discard entity with invalid id!", exception.msg);
+}
+
+
+@safe pure
 @("registry: entities")
 unittest
 {
@@ -348,6 +681,38 @@ unittest
 	auto e01 = registry.create;
 	auto e11 = registry.create;
 	assertEquals([e01, e11, e2], registry.entities.array);
+}
+
+
+@safe pure
+@("registry: get")
+unittest
+{
+	auto registry = new Registry64();
+	auto e0 = registry.create;
+	auto e1 = registry.create;
+
+	auto exceptionIE = expectThrows!InvalidEntityException(registry.get!Position(registry.entityNull));
+	assertEquals("Cannot get a component from an invalid entity!", exceptionIE.msg);
+
+	auto exceptionPDNE = expectThrows!PoolDoesNotExistException(registry.get!Position(e0));
+	assertEquals("Cannot get a component from a non existent Pool!", exceptionPDNE.msg);
+
+	registry.add!Position(e0, 5, 5);
+
+	auto exceptionENIP = expectThrows!EntityNotInPoolException(registry.get!Position(e1));
+	assertEquals("Cannot get a component from an entity which does not contain it!", exceptionENIP.msg);
+
+	registry.add!Position(e1, 1, 1);
+
+	Position* position0 = registry.get!Position(e0);
+	Position* position1 = registry.get!Position(e1);
+
+	assertSame(position0, registry.get!Position(e0));
+	assertNotSame(position0, position1);
+
+	position0.x = 50;
+	assertTrue(50 == registry.get!Position(e0).x);
 }
 
 
@@ -408,18 +773,49 @@ unittest
 
 
 @safe pure
-@("registry: discard")
+@("registry: modify")
 unittest
 {
 	auto registry = new Registry();
-	const uint invalid = 1;
-	auto exception = expectThrows!InvalidEntityException(registry.discard(invalid));
-	assertEquals("Cannot discard entity with invalid id!", exception.msg);
-
 	auto e0 = registry.create;
-	registry.discard(e0);
-	exception = expectThrows!InvalidEntityException(registry.discard(e0));
-	assertEquals("Cannot discard entity with invalid id!", exception.msg);
+	auto e1 = registry.create;
+
+	auto exceptionIE = expectThrows!InvalidEntityException(registry.modify!Position(registry.entityNull, 0, 0));
+	assertEquals("Cannot modify a component from an invalid entity!", exceptionIE.msg);
+
+	auto exceptionPDNE = expectThrows!PoolDoesNotExistException(registry.modify!Position(e0, 0, 0));
+	assertEquals("Cannot modify a component from a non existent Pool!", exceptionPDNE.msg);
+
+	registry.add!Position(e0, 3, 3);
+	registry.modify!Position(e0, 5, 7);
+
+	assertFalse(__traits(compiles, registry.modify!Position(e0, 5, "not a field")));
+
+	assertTrue(5 == registry.get!Position(e0).x);
+	assertTrue(7 == registry.get!Position(e0).y);
+
+	auto exceptionENIP = expectThrows!EntityNotInPoolException(registry.modify!Position(e1, 5, 7));
+	assertEquals("Cannot modify a component from an entity which does not contain it!", exceptionENIP.msg);
+}
+
+
+@safe pure
+@("registry: pools")
+unittest
+{
+	import ecs.component : componentId;
+	auto registry = new Registry16();
+	auto e0 = registry.create;
+
+	registry.add!Position(e0, 2, 3);
+
+	assertEquals(1, registry.pools.length);
+	assertTrue(componentId!Position in registry.pools);
+	assertFalse(componentId!Velocity in registry.pools);
+
+	registry.remove!Position(e0);
+	assertEquals(1, registry.pools.length);
+	assertTrue(componentId!Position in registry.pools);
 }
 
 
@@ -451,6 +847,49 @@ unittest
 
 	registry.create;
 	assertSame(registry.entityNull, registry.queue);
+}
+
+
+@safe pure
+@("registry: remove")
+unittest
+{
+	auto registry = new Registry8();
+	auto e0 = registry.create;
+	auto e1 = registry.create;
+
+	auto exceptionIE = expectThrows!InvalidEntityException(registry.remove!Position(registry.entityNull));
+	assertEquals("Cannot remove a component from an invalid entity!", exceptionIE.msg);
+
+	auto exceptionPDNE = expectThrows!PoolDoesNotExistException(registry.remove!Position(e0));
+	assertEquals("Cannot remove a component from a non existent Pool!", exceptionPDNE.msg);
+
+	registry.add!Position(e0, 2, 3);
+	registry.remove!Position(e0);
+
+	auto exceptionENIP = expectThrows!EntityNotInPoolException(registry.remove!Position(e1));
+	assertEquals("Cannot remove a component from an entity which does not contain it!", exceptionENIP.msg);
+
+	expectThrows!EntityNotInPoolException(registry.remove!Position(e0));
+}
+
+
+@safe pure
+@("registry: removeAll")
+unittest
+{
+	import ecs.component : componentId;
+	auto registry = new Registry8();
+	auto e0 = registry.create;
+
+	registry.add!Position(e0, 2, 3);
+	registry.add!Velocity(e0, 4, 4);
+	registry.removeAll(e0);
+
+	assertFalse(registry.contains!(Position, Velocity)(e0));
+
+	auto exception = expectThrows!InvalidEntityException(registry.removeAll(registry.entityNull));
+	assertEquals("Cannot remove components from an invalid entity!", exception.msg);
 }
 
 

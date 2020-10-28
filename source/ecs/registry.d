@@ -1,140 +1,30 @@
 module ecs.registry;
 
 import std.exception : basicExceptionCtors;
+import ecs.entity;
 
 version(unittest) import aurorafw.unit.assertion;
 
 
-/**
- * Trait which checks if a type is a valid entity type. An entity type must be
- *     unsigned and integral. These are all the accepted types: ***ubyte, ushort,
- *     uint, ulong***.
- *
- * Params: T = a type to be validated.
- *
- * Returns: `true` if is a valid type, `false` otherwise
- */
-private template isEntityType(T)
-{
-	import std.traits : isUnsigned, isIntegral;
-	enum isEntityType = isUnsigned!T && isIntegral!T;
-}
-
 
 /**
- * Trait which checks if a bit id amount is valid for a certaint entity type.
+ * BasicRegistry manages all entities. It's responsible for creating, discarding,
+ *     generate unique references and make safety checks all around entities and
+ *     component pools.
  *
  * Params:
- *     T = entity type used for validation.
- *     amount = bit amount to validate.
- *
- * Returns: `true` if amount is between 1 and T.sizeof * 8, `false` otherwise.
- *
- * See_Also: $(LREF isEntityType)
+ *     T = valid EntityType.
+ *     idBitAmount = bit amount for entity ids
  */
-private template isValidBitIdAmount(T, T amount)
-	if (isEntityType!T)
-{
-	enum isValidBitIdAmount = amount < T.sizeof * 8 && amount > 0;
-}
-
-
-/**
- * Generate needed masks and shift values. \
- * These values are defined by the variable type and the amount of id bits you
- *     use. \
- * You can only generate masks and shift values of unsigned and integral types,
- *     ***ubyte, ushort, uint, ulong***. \
- * The amount is of type T meaning you cannot pass any value lower than 0 or
- *     higher than T.max; to complement these default type constraints you cannot
- *     pass a value equal to 0 as this would mean no space for ids or equal to
- *     T.sizeof * 8 as this would mean no space for batches. \
- * \
- * There are some default alises available for fast access.
- *
- * | alias-name | id-(bits) | batch-(bits) | max-entities  | batch-reset   |
- * | :--------- | :-------: | :----------: | :-----------: | :-----------: |
- * | Registry   | 20        | 12           | 1_048_574     | 4_096         |
- * | Registry8  | 4         | 4            | 14            | 16            |
- * | Registry16 | 8         | 8            | 254           | 256           |
- * | Registry32 | 16        | 16           | 65_534        | 65_536        |
- * | Registry64 | 32        | 32           | 4_294_967_295 | 4_294_967_296 |
- *
- * Registry:
- * + id: ***20 bits*** (max at `1_048_574`)
- * + batch: ***12 bits*** (resets at `4_096`)
- *
- * Registry8:
- * + id: ***4 bits*** (max at `14`)
- * + batch: ***4 bits*** (resets at `16`)
- *
- * Registry16:
- * + id: ***8 bits*** (max at `254`)
- * + batch: ***8 bits*** (resets at `256`)
- *
- * Registry32:
- * + id: ***16 bits*** (max at `65_534`)
- * + batch: ***16 bits*** (resets at `65_536`)
- *
- * Registry64:
- * + id: ***32 bits*** (max at `4_294_967_295`)
- * + batch: ***32 bits*** (resets at `4_294_967_296`)
- *
- * Params:
- *     T = entity type.
- *     amount = number of bits reserved for the id.
- *
- * Code_Generation:
- * + `entityShift` = the shift value needed to access the batch.
- * + `entityMask` = the mask to extract the entity id.
- * + `batchMask` = the mask to extract the entity batch.
- * + `entityNull` = reserved value to for representing an empty queue as well as
- *     the maximum of entities.
- *
- * See_Also: $(LREF isEntityType), $(LREF isValidBitIdAmount)
- */
-private mixin template genEntityBitMasks(T, T amount)
-	if(isEntityType!T && isValidBitIdAmount!(T, amount))
-{
-	public enum T entityShift = amount;
-	public enum T entityMask = (1UL << amount) - 1;
-	public enum T batchMask = (1UL << (T.sizeof * 8 - amount)) - 1;
-	public enum T entityNull = entityMask;
-}
-
-
-/**
- * Simple exception for entity errors.
- */
-class EntityException : Exception
-{
-	mixin basicExceptionCtors;
-}
-
-
-///
-class InvalidEntityException : EntityException
-{
-	mixin basicExceptionCtors;
-}
-
-
-///
-class MaximumEntitiesReachedException : EntityException
-{
-	mixin basicExceptionCtors;
-}
-
-
-@nogc @safe pure
-class BasicRegistry(T, T idBitQuantity)
+@safe pure
+public final class BasicRegistry(T, T idBitAmount)
 	if(isEntityType!T)
 {
 	import std.container : Array;
 	import std.conv : to;
 	import std.exception : enforce;
 
-	mixin genEntityBitMasks!(T, idBitQuantity);
+	mixin genEntityBitMasks!(T, idBitAmount);
 
 public:
 	this() {}
@@ -278,11 +168,15 @@ private:
 	 *
 	 * See_Also: $(LREF revive), $(LREF create), $(LREF discard)
 	 */
-	@trusted pure
+	@safe pure
 	const(T) spawn()
 	{
 		enforce!MaximumEntitiesReachedException(entities.length < entityMask, "Maximum entities reached!");
-		entities.insertBack(entities.length.to!T);
+
+		(() @trusted pure {
+			entities.insertBack(entities.length.to!T);
+		})();
+
 		return entities.back;
 	}
 

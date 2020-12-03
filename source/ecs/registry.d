@@ -470,49 +470,77 @@ public:
 
 
 	/**
-	 * Edit the data of a component. \
-	 * The data must be insert by the same order that is declared in the
-	 *     component.
+	 * Edit the data of a component.
 	 *
-	 * ```d
-	 * @component struct Position { float x, y; }
-	 * // ...
-	 * registry.modify!Position(e0, 2, 3); // first is x then y
-	 * assert(*registry.get!Position(e0) == Position(2, 3));
-	 * ```
-	 *
-	 * The program won't compile when trying to pass a variable which doesn't
-	 *     exist in the component or if it exists it's not in the correct spot.
-	 *
-	 * ```d
-	 * @component struct Foo { string x; float y; }
-	 * // ...
-	 * assert( __traits(compiles, registry.modify!Foo(e0, "nice!", 3));
-	 * assert(!__traits(compiles, registry.modify!Foo(e0, 2, 3));
-	 * assert(!__traits(compiles, registry.modify!Foo(e0, 2, "not valid"));
-	 * ```
-	 *
-	 * Params:
-	 *     C = valid component to modify.
-	 *     entity = valid entity containg C.
-	 *     args = all C fields by order.
+	 * Params: C = valid component.
 	 */
-	@safe pure
-	void modify(C)(const inout(T) entity, Fields!C args)
+	template modify(C)
 		if (isComponent!C)
 	{
-		import std.traits : FieldNameTuple;
-		import std.conv : to;
-
-		enforce!InvalidEntityException(isValid(entity), "Cannot modify a component from an invalid entity!");
-		enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot modify a component from a non existent Pool!");
-		enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot modify a component from an entity which does not contain it!");
-
-		C* component = get!C(entity);
-
-		foreach (i, fieldName; FieldNameTuple!C)
+		/**
+		 * Params:
+		 *     entity = valid entity.
+		 *     component = valid component.
+		 *
+		 * Examples:
+		 * --------------------
+		 * @component struct Position { float x, y; }
+		 * registry.modify(e0, Position(2, 3)); // first is x then y
+		 * --------------------
+		 */
+		void modify(in T entity, scope auto ref C component)
 		{
-			mixin("component."~fieldName~" = args["~i.to!string~"];");
+			enforce!InvalidEntityException(isValid(entity), "Cannot modify a component from an invalid entity!");
+			enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot modify a component from a non existent Pool!");
+			enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot modify a component from an entity which does not contain it!");
+
+			(cast(Pool!(T, idBitAmount, C))(pools[componentId!C].pool)).modify(entity, component);
+		}
+
+
+		/**
+		 * The data must be inserted by the same order which is declared in the
+		 *     component. \
+		 * \
+		 * The program won't compile when trying to pass a variable which doesn't
+		 *     exist in the component or if it exists it's not in the correct spot.
+		 *
+		 * Params:
+		 *     entity = valid entity.
+		 *     args = all component's fields.
+		 *
+		 * Examples:
+		 * --------------------
+		 * @component struct Position { float x, y; }
+		 * registry.modify!Position(e0, 2, 3); // first is x then y
+		 * --------------------
+		 *
+		 * --------------------
+		 * @component struct Foo { string x; float y; }
+		 * assert( __traits(compiles, registry.modify!Foo(e0, "nice!", 3));
+		 * assert(!__traits(compiles, registry.modify!Foo(e0, 2, 3));
+		 * assert(!__traits(compiles, registry.modify!Foo(e0, 2, "not valid"));
+		 * --------------------
+		 */
+		void modify(in T entity, Fields!C args)
+		{
+			modify(entity, C(args));
+		}
+	}
+
+
+	template modify(RangeC ...)
+		if (RangeC.length > 1)
+	{
+		void modify(in T entity, scope RangeC components)
+		{
+			foreach (ref component; components) modify(entity, component);
+		}
+
+		void modify(in T[] entities, scope RangeC components)
+		{
+			import std.algorithm : each;
+			entities.each!(e => modify(e, components));
 		}
 	}
 
@@ -968,15 +996,24 @@ unittest
 	assertEquals("Cannot modify a component from a non existent Pool!", exceptionPDNE.msg);
 
 	registry.add!Position(e0, 3, 3);
+	registry.modify(e0, Position(17, 15));
+
+	assertTrue(Position(17, 15) == *registry.get!Position(e0));
+
 	registry.modify!Position(e0, 5, 7);
 
 	assertFalse(__traits(compiles, registry.modify!Position(e0, 5, "not a field")));
 
-	assertTrue(5 == registry.get!Position(e0).x);
-	assertTrue(7 == registry.get!Position(e0).y);
+	assertTrue(Position(5, 7) == *registry.get!Position(e0));
 
 	auto exceptionENIP = expectThrows!EntityNotInPoolException(registry.modify!Position(e1, 5, 7));
 	assertEquals("Cannot modify a component from an entity which does not contain it!", exceptionENIP.msg);
+
+	registry.add!Velocity(e0);
+	registry.modify(e0, Position(15, 14), Velocity(6, 8));
+
+	assertTrue(Position(15, 14) == *registry.get!Position(e0));
+	assertTrue(Velocity(6, 8) == *registry.get!Velocity(e0));
 }
 
 

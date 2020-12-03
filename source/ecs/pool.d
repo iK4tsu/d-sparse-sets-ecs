@@ -62,6 +62,14 @@ public:
 	}
 
 
+	@safe pure @live
+	void modify(in T entity, scope ref C component)
+		in (super.contains(entity))
+	{
+		packedComponents[entities[idOf(entity)]] = component;
+	}
+
+
 	/**
 	 * Removes an entity from the pool.
 	 *

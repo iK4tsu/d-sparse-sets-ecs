@@ -2,6 +2,7 @@ module ecs.registry;
 
 import std.exception : basicExceptionCtors;
 import ecs.entity;
+import ecs.sparseset : SparseSet;
 
 version(unittest) import aurorafw.unit.assertion;
 
@@ -33,7 +34,7 @@ public final class PoolDoesNotExistException : PoolDataException
  */
 @safe pure
 public final class BasicRegistry(T, T idBitAmount)
-	if(isEntityType!T)
+	if(isEntityType!T && __traits(compiles, SparseSet!(T, idBitAmount)))
 {
 	import std.conv : to;
 	import std.exception : enforce;
@@ -41,7 +42,6 @@ public final class BasicRegistry(T, T idBitAmount)
 	import std.traits : Fields;
 	import ecs.component : isComponent, componentId;
 	import ecs.pool : Pool;
-	import ecs.sparseset : SparseSet;
 
 	mixin genEntityBitMasks!(T, idBitAmount);
 

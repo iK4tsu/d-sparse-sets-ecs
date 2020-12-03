@@ -211,48 +211,166 @@ public:
 
 
 	/**
-	 * Add a component to an entity. \
+	 * Add a component. \
 	 * \
-	 * You cannot add a component to an enity which already contains a component
+	 * Components cannot be added to an enity which already contains a component
 	 *     of the same type.
 	 *
-	 * Params:
-	 *     entity = a valid entity.
-	 *     component = a valid component to add.
+	 * Params: C = valid component.
 	 */
-	@safe pure
-	void add(C)(const inout(T) entity, const inout(C) component)
+	template add(C)
 		if (isComponent!C)
 	{
-		enforce!InvalidEntityException(isValid(entity), "Cannot add a component to an invalid entity");
-		immutable cid = componentId!C;
-		auto ptr = cid in pools;
-
-		if (ptr is null)
+		/**
+		 * Add a component to an entity. \
+		 * By default the component is initialized to it's default values.
+		 *
+		 * Params:
+		 *     entity = a valid entity.
+		 *     component = a valid component to add.
+		 */
+		void add(in T entity, in C component = C.init)
 		{
-			pools[cid] = PoolData(
-				new Pool!(T, idBitAmount, C)(),
-				delegate void(SparseSet!(T, idBitAmount) pool, const inout(T) entity) @safe pure {
-					(cast(Pool!(T, idBitAmount, C))(pool)).remove(entity);
-				}
-			);
-		}
-		else
-		{
-			enforce!EntityInPoolException(!(*ptr).pool.contains(entity), "Cannot add a component to an entity already in the Pool!");
+			enforce!InvalidEntityException(isValid(entity), "Cannot add a component to an invalid entity");
+			immutable cid = componentId!C;
+			auto ptr = cid in pools;
+
+			if (ptr is null)
+			{
+				pools[cid] = PoolData(
+					new Pool!(T, idBitAmount, C)(),
+					delegate void(SparseSet!(T, idBitAmount) pool, const inout(T) entity) @safe pure {
+						(cast(Pool!(T, idBitAmount, C))(pool)).remove(entity);
+					}
+				);
+			}
+			else
+			{
+				enforce!EntityInPoolException(!(*ptr).pool.contains(entity), "Cannot add a component to an entity already in the Pool!");
+			}
+
+			Pool!(T, idBitAmount, C) pool = cast(Pool!(T, idBitAmount, C))(pools[cid].pool);
+			pool.add(entity, component);
 		}
 
-		Pool!(T, idBitAmount, C) pool = cast(Pool!(T, idBitAmount, C))(pools[cid].pool);
-		pool.add(entity, component);
+
+		/**
+		 * Add a component to entities. \
+		 * By default the component is initialized to it's default values.
+		 *
+		 * Params:
+		 *     entities = valid entities.
+		 *     component = a valid component to add.
+		 */
+		void add(in T[] entities, C component = C.init)
+		{
+			import std.algorithm : each;
+			entities.each!(e => add(e, component));
+		}
+
+
+		/**
+		 * Add a component to an entity. \
+		 *
+		 * Params:
+		 *     entity = a valid entity.
+		 *     args = all component fields.
+		 *
+		 * Examples:
+		 * --------------------
+		 * @Component struct Foo { int a; }
+		 * add!Foo(e, 3); // adds Foo(3) to entity e
+		 * --------------------
+		 */
+		void add(in T entity, Fields!C args)
+		{
+			add(entity, C(args));
+		}
+
+
+		/**
+		 * Add a component to entities. \
+		 *
+		 * Params:
+		 *     entities = valid entities.
+		 *     args = all component fields.
+		 *
+		 * Examples:
+		 * --------------------
+		 * @Component struct Foo { int a; }
+		 * add!Foo(e, 3); // adds Foo(3) to entities e
+		 * --------------------
+		 */
+		void add(in T[] entities, Fields!C args)
+		{
+			import std.algorithm : each;
+			entities.each!(e => add(e, C(args)));
+		}
 	}
 
 
-	///
-	@safe pure
-	void add(C)(const inout(T) entity, Fields!C args)
-		if (isComponent!C)
+	/**
+	 * Add components. \
+	 * \
+	 * Components cannot be added to an enity which already contains a component
+	 *     of the same type.
+	 *
+	 * Params: RangeC = a valid component's range.
+	 */
+	template add(RangeC ...)
+		if (RangeC.length > 1)
 	{
-		add(entity, C(args));
+		import std.algorithm : each;
+
+
+		/**
+		 * Add components to an entity. \
+		 * Components will be initialized to `.init`.
+		 *
+		 * Params: entity = a valid entity.
+		 */
+		void add(in T entity)
+		{
+			foreach (C; RangeC) add!C(entity);
+		}
+
+
+		/**
+		 * Add components to an entity.
+		 *
+		 * Params:
+		 *     entity = a valid entity.
+		 *     components = valid components to add.
+		 */
+		void add(in T entity, RangeC components)
+		{
+			foreach (component; components) add(entity, component);
+		}
+
+
+		/**
+		 * Add components to entities. \
+		 * Components will be initialized to `.init`
+		 *
+		 * Params: entities = valid entities.
+		 */
+		void add(in T[] entities)
+		{
+			entities.each!(e => add!(RangeC)(e));
+		}
+
+
+		/**
+		 * Add components to entities.
+		 *
+		 * Params:
+		 *     entities = valid entities.
+		 *     components = valid components to add.
+		 */
+		void add(in T[] entities, RangeC components)
+		{
+			entities.each!(e => add(e, components));
+		}
 	}
 
 
@@ -564,6 +682,7 @@ version(unittest)
 	import ecs.component : Component;
 	private @Component struct Position { float x, y; }
 	private @Component struct Velocity { float dx, dy; }
+	private @Component struct Colision {}
 	private struct NotComponent {}
 }
 
@@ -585,15 +704,32 @@ unittest
 	auto exceptionEIP = expectThrows!EntityInPoolException(registry.add(e0, Position(2, 4)));
 	assertEquals("Cannot add a component to an entity already in the Pool!", exceptionEIP.msg);
 
-	registry.add(e1, Velocity(6, 24));
+	registry.add!Colision(e1);
 
 	assertTrue(registry.contains!Position(e0));
 	assertFalse(registry.contains!Velocity(e0));
 
-	assertTrue(registry.contains!Velocity(e1));
+	assertTrue(registry.contains!Colision(e1));
 	assertFalse(registry.contains!Position(e1));
 
 	assertFalse(__traits(compiles, registry.add(e0, NotComponent())));
+
+	registry.add!Velocity([e0, e1]);
+
+	assertTrue(registry.contains!Velocity(e0));
+	assertTrue(registry.contains!Velocity(e1));
+
+	auto entities = registry.create(2);
+
+	registry.add!(Position, Colision)(entities);
+
+	assertTrue(registry.contains!(Position, Colision)(entities[0]));
+
+	entities = registry.create(2);
+
+	registry.add(entities, Position.init, Velocity(2, 3), Colision.init);
+
+	assertTrue(registry.contains!(Position, Velocity, Colision)(entities[0]));
 }
 
 
@@ -603,12 +739,17 @@ unittest
 {
 	auto registry = new Registry8();
 	auto e0 = registry.create();
+	auto e1 = registry.create();
 
 	registry.add!Position(e0, 2, 4);
-	registry.add!Velocity(e0, 6, 24);
 
 	assertTrue(registry.contains!Position(e0));
+
+	registry.add!Velocity([e0, e1], 6, 24);
+
 	assertTrue(registry.contains!Velocity(e0));
+	assertTrue(registry.contains!Velocity(e1));
+	assertTrue(Velocity(6, 24) == *registry.get!Velocity(e0));
 }
 
 

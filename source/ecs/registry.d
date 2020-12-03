@@ -383,14 +383,30 @@ public:
 	 *
 	 * Returns: a pointer to the respective component.
 	 */
-	@safe pure
-	C* get(C)(const inout(T) entity)
+	C* get(C)(in T entity)
 		if (isComponent!C)
 	{
 		enforce!InvalidEntityException(isValid(entity), "Cannot get a component from an invalid entity!");
 		enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot get a component from a non existent Pool!");
 		enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot get a component from an entity which does not contain it!");
 		return (cast(Pool!(T, idBitAmount, C))(pools[componentId!C].pool)).get(entity);
+	}
+
+
+	/**
+	 * Get components from an entity
+	 *
+	 * Params:
+	 *     RangeC = valid component's range.
+	 *     entity = valid entity to search.
+	 *
+	 * Returns: a tuple with pointers to the respective components.
+	 */
+	auto get(RangeC ...)(in T entity)
+		if (RangeC.length > 1)
+	{
+		import std.typecons : tuple;
+		return tuple(get!(RangeC[0])(entity)) ~ get!(RangeC[1 .. $])(entity);
 	}
 
 
@@ -897,6 +913,8 @@ unittest
 @("registry: get")
 unittest
 {
+	import std.typecons : Tuple;
+
 	auto registry = new Registry64();
 	auto e0 = registry.create();
 	auto e1 = registry.create();
@@ -922,6 +940,11 @@ unittest
 
 	position0.x = 50;
 	assertTrue(50 == registry.get!Position(e0).x);
+
+	registry.add!Colision(e0);
+	Tuple!(Position*, Colision*) pc = registry.get!(Position, Colision)(e0);
+
+	assertSame(pc[0], position0);
 }
 
 

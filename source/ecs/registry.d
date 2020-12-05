@@ -58,7 +58,7 @@ public:
 
 
 	/**
-	 * Create a new entity either by spawning a new id or reusing one in the
+	 * Creates a new entity either by spawning a new id or reusing one in the
 	 *     queue.
 	 *
 	 * Returns: a new entity reference with a reused id if the queue isn't
@@ -67,9 +67,32 @@ public:
 	 * See_Also: $(LREF spawn), $(LREF revive), $(LREF discard)
 	 */
 	@safe pure
-	@property const(T) create()
+	T create()
 	{
-		return queue == entityNull ? spawn : revive;
+		return queue == entityNull ? spawn() : revive();
+	}
+
+
+	/**
+	 * Creates entities either by spawning a new id or reusing one in the
+	 *     queue.
+	 *
+	 * Params: n = amount to create.
+	 *
+	 * Returns: a new entity reference with a reused id if the queue isn't
+	 *     empty or with a new spawned id otherwise.
+	 *
+	 * See_Also: $(LREF spawn), $(LREF revive), $(LREF discard)
+	 */
+	@safe pure
+	T[] create(in T n)
+		in (n > 0)
+	{
+		import std.algorithm : map;
+		import std.array : array;
+		import std.range : iota;
+
+		return n.iota.map!(e => create()).array;
 	}
 
 
@@ -386,7 +409,7 @@ private:
 	 * See_Also: $(LREF revive), $(LREF create), $(LREF discard)
 	 */
 	@safe pure
-	const(T) spawn()
+	T spawn()
 	{
 		import std.range : back;
 		enforce!MaximumEntitiesReachedException(entities.length < entityMask, "Maximum entities reached!");
@@ -404,7 +427,7 @@ private:
 	 * See_Also: $(LREF spawn), $(LREF create), $(LREF discard)
 	 */
 	@safe pure
-	const(T) revive()
+	T revive()
 		in(queue != entityNull, "Must have dead entities to revive!")
 	{
 		const batch = batchOf(entities[queue]);
@@ -550,8 +573,8 @@ version(unittest)
 unittest
 {
 	auto registry = new Registry8();
-	auto e0 = registry.create;
-	auto e1 = registry.create;
+	auto e0 = registry.create();
+	auto e1 = registry.create();
 	immutable ubyte invalid = 15;
 
 	auto exceptionIE = expectThrows!InvalidEntityException(registry.add(invalid, Position(2, 4)));
@@ -579,7 +602,7 @@ unittest
 unittest
 {
 	auto registry = new Registry8();
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 
 	registry.add!Position(e0, 2, 4);
 	registry.add!Velocity(e0, 6, 24);
@@ -594,13 +617,13 @@ unittest
 unittest
 {
 	auto registry = new Registry();
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 	assertEquals(0, registry.batchOf(e0));
 
 	registry.discard(e0);
 	assertEquals(0, registry.batchOf(e0));
 
-	auto e1 = registry.create;
+	auto e1 = registry.create();
 	assertEquals(1, registry.batchOf(e1));
 	assertEquals(0, registry.batchOf(e0));
 }
@@ -612,7 +635,7 @@ unittest
 {
 	import ecs.component : componentId;
 	auto registry = new Registry();
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 
 	assertFalse(registry.contains!Position(e0));
 
@@ -629,11 +652,28 @@ unittest
 
 
 @safe pure
+@("registry: create")
+unittest
+{
+	auto registry = new Registry();
+	auto entities = registry.create(3);
+
+	assertEquals([0, 1, 2], entities);
+
+	registry.discard(entities[0]);
+
+	entities = registry.create(2);
+
+	assertEquals([1 << 20, 3], entities);
+}
+
+
+@safe pure
 @("registry: currentBatchOf")
 unittest
 {
 	auto registry = new Registry();
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 	assertEquals(0, registry.currentBatchOf(e0));
 
 	registry.discard(e0);
@@ -650,7 +690,7 @@ unittest
 	auto exception = expectThrows!InvalidEntityException(registry.discard(invalid));
 	assertEquals("Cannot discard entity with invalid id!", exception.msg);
 
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 	registry.discard(e0);
 	exception = expectThrows!InvalidEntityException(registry.discard(e0));
 	assertEquals("Cannot discard entity with invalid id!", exception.msg);
@@ -664,9 +704,9 @@ unittest
 	import std.array : array;
 	auto registry = new Registry();
 
-	auto e0 = registry.create;
-	auto e1 = registry.create;
-	auto e2 = registry.create;
+	auto e0 = registry.create();
+	auto e1 = registry.create();
+	auto e2 = registry.create();
 
 	assertEquals([e0, e1, e2], registry.entities.array);
 
@@ -678,8 +718,8 @@ unittest
 	const pos0 = registry.idOf(e1) | (registry.currentBatchOf(e0) << registry.entityShift);
 	assertEquals([pos0, pos1, e2], registry.entities.array);
 
-	auto e01 = registry.create;
-	auto e11 = registry.create;
+	auto e01 = registry.create();
+	auto e11 = registry.create();
 	assertEquals([e01, e11, e2], registry.entities.array);
 }
 
@@ -689,8 +729,8 @@ unittest
 unittest
 {
 	auto registry = new Registry64();
-	auto e0 = registry.create;
-	auto e1 = registry.create;
+	auto e0 = registry.create();
+	auto e1 = registry.create();
 
 	auto exceptionIE = expectThrows!InvalidEntityException(registry.get!Position(registry.entityNull));
 	assertEquals("Cannot get a component from an invalid entity!", exceptionIE.msg);
@@ -725,7 +765,7 @@ unittest
 	auto invalid = 0;
 	assertFalse(registry.hasSpawned(invalid));
 
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 	assertTrue(registry.hasSpawned(e0));
 
 	registry.discard(e0);
@@ -739,13 +779,13 @@ unittest
 {
 	auto registry = new Registry();
 
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 	assertEquals(0, registry.idOf(e0));
 
 	registry.discard(e0);
 	assertEquals(0, registry.idOf(e0));
 
-	auto e01 = registry.create;
+	auto e01 = registry.create();
 	assertEquals(registry.idOf(e01), registry.idOf(e0));
 	assertNotSame(e0, e01);
 }
@@ -760,13 +800,13 @@ unittest
 	auto invalid = 0;
 	assertFalse(registry.isValid(invalid));
 
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 	assertTrue(registry.isValid(e0));
 
 	registry.discard(e0);
 	assertFalse(registry.isValid(e0));
 
-	auto e01 = registry.create;
+	auto e01 = registry.create();
 	assertTrue(registry.isValid(e01));
 	assertFalse(registry.isValid(e0));
 }
@@ -777,8 +817,8 @@ unittest
 unittest
 {
 	auto registry = new Registry();
-	auto e0 = registry.create;
-	auto e1 = registry.create;
+	auto e0 = registry.create();
+	auto e1 = registry.create();
 
 	auto exceptionIE = expectThrows!InvalidEntityException(registry.modify!Position(registry.entityNull, 0, 0));
 	assertEquals("Cannot modify a component from an invalid entity!", exceptionIE.msg);
@@ -805,7 +845,7 @@ unittest
 {
 	import ecs.component : componentId;
 	auto registry = new Registry16();
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 
 	registry.add!Position(e0, 2, 3);
 
@@ -826,9 +866,9 @@ unittest
 	auto registry = new Registry();
 	assertSame(registry.entityNull, registry.queue);
 
-	auto e0 = registry.create;
-	auto e1 = registry.create;
-	auto e2 = registry.create;
+	auto e0 = registry.create();
+	auto e1 = registry.create();
+	auto e2 = registry.create();
 
 	registry.discard(e0);
 	assertSame(e0, registry.queue);
@@ -839,13 +879,13 @@ unittest
 	registry.discard(e1);
 	assertSame(e1, registry.queue);
 
-	registry.create;
+	registry.create();
 	assertSame(e2, registry.queue);
 
-	registry.create;
+	registry.create();
 	assertSame(e0, registry.queue);
 
-	registry.create;
+	registry.create();
 	assertSame(registry.entityNull, registry.queue);
 }
 
@@ -855,8 +895,8 @@ unittest
 unittest
 {
 	auto registry = new Registry8();
-	auto e0 = registry.create;
-	auto e1 = registry.create;
+	auto e0 = registry.create();
+	auto e1 = registry.create();
 
 	auto exceptionIE = expectThrows!InvalidEntityException(registry.remove!Position(registry.entityNull));
 	assertEquals("Cannot remove a component from an invalid entity!", exceptionIE.msg);
@@ -880,7 +920,7 @@ unittest
 {
 	import ecs.component : componentId;
 	auto registry = new Registry8();
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 
 	registry.add!Position(e0, 2, 3);
 	registry.add!Velocity(e0, 4, 4);
@@ -898,13 +938,13 @@ private template registryReviveUnittest(T, T amount)
 	enum registryReviveUnittest = q{
 		auto registry = new BasicRegistry!(}~T.stringof~","~amount.stringof~q{);
 
-		auto e0 = registry.create;
+		auto e0 = registry.create();
 		registry.discard(e0);
-		auto e1 = registry.create;
+		auto e1 = registry.create();
 		assertNotSame(e1, e0);
 
 		registry.discard(e1);
-		auto e2 = registry.create;
+		auto e2 = registry.create();
 		assertSame(e0, e2);
 	};
 }
@@ -946,7 +986,7 @@ private template registrySpawnUnittest(T, T amount)
 {
 	enum registrySpawnUnittest = q{
 		auto registry = new BasicRegistry!(}~T.stringof~","~amount.stringof~q{);
-		registry.create;
+		registry.create();
 		auto exception = expectThrows!MaximumEntitiesReachedException(registry.spawn);
 		assertEquals("Maximum entities reached!", exception.msg);
 	};
@@ -1013,13 +1053,13 @@ unittest
 {
 	auto registry = new BasicRegistry!(ubyte, 7);
 
-	auto e0 = registry.create;
+	auto e0 = registry.create();
 	assertEquals(0, registry.batchOf(e0));
 
 	// increments batch
 	assertEquals(1, registry.updateBatch(e0));
 	registry.discard(e0);
-	auto e1 = registry.create;
+	auto e1 = registry.create();
 
 	// maximum batch reached (1 bit), resets to 0!
 	assertEquals(0, registry.updateBatch(e1));

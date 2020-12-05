@@ -447,21 +447,82 @@ public:
 
 
 	/**
-	 * Remove a component from an entity.
+	 * Remove a component. \
+	 * A component cannot be removed if an entity isn't valid or the component
+	 *     hasn't been created yet or the entity doesn't contain the component.
 	 *
-	 * Params:
-	 *     C = valid component to remove.
-	 *     entity = valid entity containing C.
+	 * Params: C = valid component to remove.
+	 *
+	 * Throws: **InvalidEntityException**, **PoolDoesNotExistException** and
+	 *     **EntityNotInPoolException**
 	 */
-	@safe pure
-	void remove(C)(const inout(T) entity)
+	template remove(C)
 		if (isComponent!C)
 	{
-		// TODO: just ignore this an do nothing?
-		enforce!InvalidEntityException(isValid(entity), "Cannot remove a component from an invalid entity!");
-		enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot remove a component from a non existent Pool!");
-		enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot remove a component from an entity which does not contain it!");
-		pools[componentId!C].remove(pools[componentId!C].pool, entity);
+		/**
+		 * Remove a component from an entity.
+		 *
+		 * Params: entity = a valid entity.
+		 *
+		 * Throws: **InvalidEntityException**, **PoolDoesNotExistException** and
+		 *     **EntityNotInPoolException**
+		 */
+		void remove(in T entity)
+		{
+			// TODO: just ignore this an do nothing?
+			enforce!InvalidEntityException(isValid(entity), "Cannot remove a component from an invalid entity!");
+			enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot remove a component from a non existent Pool!");
+			enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot remove a component from an entity which does not contain it!");
+			pools[componentId!C].remove(pools[componentId!C].pool, entity);
+		}
+
+		/**
+		 * Remove a component from entities.
+		 *
+		 * Params: entity = a valid entity.
+		 */
+		void remove(in T[] entities)
+		{
+			import std.algorithm : each;
+			entities.each!(e => remove!C(e));
+		}
+	}
+
+
+	/**
+	 * Remove components. \
+	 * A component cannot be removed if an entity isn't valid or the component
+	 *     hasn't been created yet or the entity doesn't contain the component.
+	 *
+	 * Params: RangeC = valid components to remove.
+	 *
+	 * Throws: **InvalidEntityException**, **PoolDoesNotExistException** and
+	 *     **EntityNotInPoolException**
+	 */
+	template remove(RangeC ...)
+		if (RangeC.length > 1)
+	{
+		/**
+		 * Remove components from an entity.
+		 *
+		 * Params: entity = a valid entity.
+		 */
+		void remove(in T entity)
+		{
+			foreach (C; RangeC) remove!C(entity);
+		}
+
+
+		/**
+		 * Remove components from entities.
+		 *
+		 * Params: entities = valid entities.
+		 */
+		void remove(in T[] entities)
+		{
+			import std.algorithm : each;
+			entities.each!(e => remove!(RangeC)(e));
+		}
 	}
 
 
@@ -1112,6 +1173,16 @@ unittest
 	assertEquals("Cannot remove a component from an entity which does not contain it!", exceptionENIP.msg);
 
 	expectThrows!EntityNotInPoolException(registry.remove!Position(e0));
+
+	registry.add!(Position, Velocity, Colision)([e0, e1]);
+	registry.remove!(Position)([e0, e1]);
+
+	assertFalse(registry.contains!Position(e0));
+	assertFalse(registry.contains!Position(e1));
+
+	registry.remove!(Velocity, Colision)([e0, e1]);
+	assertFalse(registry.contains!(Velocity, Colision)(e0));
+	assertFalse(registry.contains!(Velocity, Colision)(e1));
 }
 
 

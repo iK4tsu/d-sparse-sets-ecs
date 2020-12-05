@@ -411,38 +411,182 @@ public:
 
 
 	/**
-	 * Checks if an entity, valid or not, contains a component. \
-	 * \
-	 * If the entity isn't valid or the component pool doesn't exist or the
-	 *     entity does not contain it, it returs `false`!
+	 * Contains a component. \
 	 *
-	 * Params:
-	 *     C = valid component to check.
-	 *     entity = entity to search.
-	 *
-	 * Returns: `true` if the entity contains the component, `false` otherwise.
+	 * Params: C = valid component to check.
 	 */
-	@safe pure
-	bool contains(C)(const inout(T) entity)
+	template contains(C)
 		if (isComponent!C)
 	{
-		return isValid(entity)
+		/**
+		 * Checks if an entity, valid or not, contains a component. \
+		 * \
+		 * If the entity isn't valid or the component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params: entity = entity to search.
+		 *
+		 * Returns: `true` if the entity contains the component, `false` otherwise.
+		 */
+		auto contains(in T entity)
+		{
+			return isValid(entity)
 				&& componentId!C in pools
 				&& pools[componentId!C].pool.contains(entity);
+		}
+
+
+		/**
+		 * Checks if an entity, valid or not, contains a component. \
+		 * \
+		 * If the entity isn't valid or the component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params:
+		 *     component = valid component to check.
+		 *     entity = entity to search.
+		 *
+		 * Returns: `true` if the entity contains the component, `false` otherwise.
+		 */
+		auto contains(in T entity, in C component)
+		{
+			return isValid(entity)
+				&& componentId!C in pools
+				&& (cast(Pool!(T, idBitAmount, C))(pools[componentId!C].pool)).contains(entity, component);
+		}
+
+
+		/**
+		 * Checks if all entities, valid or not, contain a component. \
+		 * \
+		 * If the entity isn't valid or the component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params: entities = entities to search.
+		 *
+		 * Returns: `true` if all entities contain the component, `false` otherwise.
+		 */
+		auto contains(in T[] entities)
+		{
+			import std.algorithm : each;
+			import std.typecons : No, Yes;
+
+			return entities.each!(e => contains!C(e) ? Yes.each : No.each) == Yes.each;
+		}
+
+
+		/**
+		 * Checks if all entities, valid or not, contain a component. \
+		 * \
+		 * If the entity isn't valid or the component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params:
+		 *     component = valid component to check.
+		 *     entities = entities to search.
+		 *
+		 * Returns: `true` if all entities contain the component, `false` otherwise.
+		 */
+		auto contains(in T[] entities, in C component)
+		{
+			import std.algorithm : each;
+			import std.typecons : No, Yes;
+
+			return entities.each!(e => contains!C(e, component) ? Yes.each : No.each) == Yes.each;
+		}
 	}
 
 
-	///
-	@safe pure
-	bool contains(C ...)(const inout(T) entity)
-		if (allSatisfy!(isComponent, C))
+	/**
+	 * Contains components. \
+	 *
+	 * Params: RangeC = valid components to check.
+	 */
+	template contains(RangeC ...)
+		if (RangeC.length > 1)
 	{
-		foreach (component; C)
+		/**
+		 * Checks if an entity, valid or not, contains all components. \
+		 * \
+		 * If the entity isn't valid or a component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params: entity = entity to search.
+		 *
+		 * Returns: `true` if all entities contain all components, `false` otherwise.
+		 */
+		auto contains(in T entity)
 		{
-			if (!contains!component(entity))
-				return false;
+			foreach (C; RangeC)
+			{
+				if (!contains!C(entity))
+					return false;
+			}
+			return true;
 		}
-		return true;
+
+
+		/**
+		 * Checks if an entity, valid or not, contains all components. \
+		 * \
+		 * If the entity isn't valid or a component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params:
+		 *     components = valid components to check.
+		 *     entity = entity to search.
+		 *
+		 * Returns: `true` if the entity contains all components, `false` otherwise.
+		 */
+		auto contains(in T entity, RangeC components)
+		{
+			foreach (ref component; components)
+			{
+				if (!contains(entity, component))
+					return false;
+			}
+			return true;
+		}
+
+
+		/**
+		 * Checks if all entities, valid or not, contain all components. \
+		 * \
+		 * If any entity isn't valid or a component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params: entities = entities to search.
+		 *
+		 * Returns: `true` if all entities contain all components, `false` otherwise.
+		 */
+		auto contains(in T[] entities)
+		{
+			import std.algorithm : each;
+			import std.typecons : No, Yes;
+
+			return entities.each!(e => contains!(RangeC)(e) ? Yes.each : No.each) == Yes.each;
+		}
+
+
+		/**
+		 * Checks if all entities, valid or not, contain all components. \
+		 * \
+		 * If any entity isn't valid or a component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params:
+		 *     components = valid components to check.
+		 *     entities = entities to search.
+		 *
+		 * Returns: `true` if all entities contain all components, `false` otherwise.
+		 */
+		auto contains(in T[] entities, RangeC components)
+		{
+			import std.algorithm : each;
+			import std.typecons : No, Yes;
+
+			return entities.each!(e => contains!(RangeC)(e, components) ? Yes.each : No.each) == Yes.each;
+		}
 	}
 
 
@@ -882,6 +1026,7 @@ unittest
 	import ecs.component : componentId;
 	auto registry = new Registry();
 	auto e0 = registry.create();
+	auto e1 = registry.create();
 
 	assertFalse(registry.contains!Position(e0));
 
@@ -890,6 +1035,10 @@ unittest
 
 	registry.add!Velocity(e0, 3, 4);
 	assertTrue(registry.contains!(Position, Velocity)(e0));
+
+	registry.add(e1, Position(1, 1), Velocity(3, 4));
+	assertTrue(registry.contains([e0, e1], Position(1, 1), Velocity(3, 4)));
+	assertFalse(registry.contains([e0, e1, registry.entityNull], Position(1, 1), Velocity(3, 4)));
 
 	registry.discard(e0);
 	assertFalse(registry.contains!(Position, Velocity)(e0));

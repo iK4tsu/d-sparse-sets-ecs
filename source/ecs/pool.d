@@ -43,6 +43,14 @@ public:
 	}
 
 
+	@safe pure
+	bool contains(in T entity, in C component)
+	{
+		return super.contains(entity)
+			&& packedComponents[entities[idOf(entity)]] == component;
+	}
+
+
 	/**
 	 * Get a component from an entity.
 	 *

@@ -35,7 +35,7 @@ public:
 	 * See_Also: $(REF add, ecs.sparseset)
 	 */
 	@safe pure
-	void add(const inout(T) entity, const inout(C) component)
+	void add(in T entity, in C component)
 		in (!super.contains(entity))
 	{
 		packedComponents ~= component;
@@ -59,7 +59,7 @@ public:
 	 * Returns: a pointer to the respective component.
 	 */
 	@safe pure
-	C* get(const inout(T) entity)
+	C* get(in T entity)
 		in (super.contains(entity))
 	{
 		auto saferef = (() @trusted pure {
@@ -86,7 +86,7 @@ public:
 	 * See_Also: $(REF remove, ecs.sparseset)
 	 */
 	@safe pure override
-	void remove(const inout(T) entity)
+	void remove(in T entity)
 		in (super.contains(entity))
 	{
 		import std.algorithm : swap;

@@ -125,11 +125,11 @@ protected:
 	 * Params: entity = valid entity which is going to be inserted
 	 */
 	@safe pure
-	void add(const inout(T) entity)
+	void add(in T entity)
 		in (!contains(entity))
 	{
-		const eid = idOf(entity);
-		const T pos = cast(T)(packedEntities.length);
+		immutable eid = idOf(entity);
+		immutable T pos = cast(T)(packedEntities.length);
 
 		packedEntities ~= entity;
 
@@ -182,7 +182,7 @@ protected:
 	 * Params: entity = valid entity to remove.
 	 */
 	@safe pure
-	void remove(const inout(T) entity)
+	void remove(in T entity)
 		in (contains(entity))
 	{
 		import std.algorithm : swap;

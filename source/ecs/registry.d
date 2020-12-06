@@ -46,13 +46,9 @@ public final class BasicRegistry(T, T idBitAmount)
 	mixin genEntityBitMasks!(T, idBitAmount);
 
 public:
-	this() {}
-
-
-	// TODO: containsAll
 	// TODO: containsAny
 	// TODO: modifyOrAdd
-	// TODO: getIfContains (must return null ptr with failure)
+	// TODO: getOrNull (must return null ptr with failure)
 	// TODO: iterators
 	// TODO: entitiesWith (idealy returns an iterator)
 
@@ -221,6 +217,8 @@ public:
 	template add(C)
 		if (isComponent!C)
 	{
+		import std.algorithm : each;
+
 		/**
 		 * Add a component to an entity. \
 		 * By default the component is initialized to it's default values.
@@ -239,7 +237,7 @@ public:
 			{
 				pools[cid] = PoolData(
 					new Pool!(T, idBitAmount, C)(),
-					delegate void(SparseSet!(T, idBitAmount) pool, const inout(T) entity) @safe pure {
+					delegate void(SparseSet!(T, idBitAmount) pool, in T entity) @safe pure {
 						(cast(Pool!(T, idBitAmount, C))(pool)).remove(entity);
 					}
 				);
@@ -262,9 +260,8 @@ public:
 		 *     entities = valid entities.
 		 *     component = a valid component to add.
 		 */
-		void add(in T[] entities, C component = C.init)
+		void add(in T[] entities, in C component = C.init)
 		{
-			import std.algorithm : each;
 			entities.each!(e => add(e, component));
 		}
 
@@ -303,7 +300,6 @@ public:
 		 */
 		void add(in T[] entities, Fields!C args)
 		{
-			import std.algorithm : each;
 			entities.each!(e => add(e, C(args)));
 		}
 	}
@@ -321,7 +317,6 @@ public:
 		if (RangeC.length > 1)
 	{
 		import std.algorithm : each;
-
 
 		/**
 		 * Add components to an entity. \
@@ -342,9 +337,9 @@ public:
 		 *     entity = a valid entity.
 		 *     components = valid components to add.
 		 */
-		void add(in T entity, RangeC components)
+		void add(in T entity, in RangeC components)
 		{
-			foreach (component; components) add(entity, component);
+			foreach (ref component; components) add(entity, component);
 		}
 
 
@@ -367,7 +362,7 @@ public:
 		 *     entities = valid entities.
 		 *     components = valid components to add.
 		 */
-		void add(in T[] entities, RangeC components)
+		void add(in T[] entities, in RangeC components)
 		{
 			entities.each!(e => add(e, components));
 		}
@@ -389,6 +384,7 @@ public:
 		enforce!InvalidEntityException(isValid(entity), "Cannot get a component from an invalid entity!");
 		enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot get a component from a non existent Pool!");
 		enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot get a component from an entity which does not contain it!");
+
 		return (cast(Pool!(T, idBitAmount, C))(pools[componentId!C].pool)).get(entity);
 	}
 
@@ -418,6 +414,9 @@ public:
 	template contains(C)
 		if (isComponent!C)
 	{
+		import std.algorithm : each;
+		import std.typecons : No, Yes;
+
 		/**
 		 * Checks if an entity, valid or not, contains a component. \
 		 * \
@@ -468,9 +467,6 @@ public:
 		 */
 		auto contains(in T[] entities)
 		{
-			import std.algorithm : each;
-			import std.typecons : No, Yes;
-
 			return entities.each!(e => contains!C(e) ? Yes.each : No.each) == Yes.each;
 		}
 
@@ -489,9 +485,6 @@ public:
 		 */
 		auto contains(in T[] entities, in C component)
 		{
-			import std.algorithm : each;
-			import std.typecons : No, Yes;
-
 			return entities.each!(e => contains!C(e, component) ? Yes.each : No.each) == Yes.each;
 		}
 	}
@@ -505,6 +498,9 @@ public:
 	template contains(RangeC ...)
 		if (RangeC.length > 1)
 	{
+		import std.algorithm : each;
+		import std.typecons : No, Yes;
+
 		/**
 		 * Checks if an entity, valid or not, contains all components. \
 		 * \
@@ -538,7 +534,7 @@ public:
 		 *
 		 * Returns: `true` if the entity contains all components, `false` otherwise.
 		 */
-		auto contains(in T entity, RangeC components)
+		auto contains(in T entity, in RangeC components)
 		{
 			foreach (ref component; components)
 			{
@@ -561,9 +557,6 @@ public:
 		 */
 		auto contains(in T[] entities)
 		{
-			import std.algorithm : each;
-			import std.typecons : No, Yes;
-
 			return entities.each!(e => contains!(RangeC)(e) ? Yes.each : No.each) == Yes.each;
 		}
 
@@ -580,11 +573,8 @@ public:
 		 *
 		 * Returns: `true` if all entities contain all components, `false` otherwise.
 		 */
-		auto contains(in T[] entities, RangeC components)
+		auto contains(in T[] entities, in RangeC components)
 		{
-			import std.algorithm : each;
-			import std.typecons : No, Yes;
-
 			return entities.each!(e => contains!(RangeC)(e, components) ? Yes.each : No.each) == Yes.each;
 		}
 	}
@@ -617,6 +607,7 @@ public:
 			enforce!InvalidEntityException(isValid(entity), "Cannot remove a component from an invalid entity!");
 			enforce!PoolDoesNotExistException(componentId!C in pools, "Cannot remove a component from a non existent Pool!");
 			enforce!EntityNotInPoolException(pools[componentId!C].pool.contains(entity), "Cannot remove a component from an entity which does not contain it!");
+
 			pools[componentId!C].remove(pools[componentId!C].pool, entity);
 		}
 
@@ -675,8 +666,8 @@ public:
 	 *
 	 * Params: entity = valid entity to remove all components from.
 	 */
-	@trusted pure
-	void removeAll(const inout(T) entity)
+	@safe pure
+	void removeAll(in T entity)
 	{
 		// TODO: delete component pool with 0 entities?
 		enforce!InvalidEntityException(isValid(entity), "Cannot remove components from an invalid entity!");
@@ -687,6 +678,19 @@ public:
 				poolData.remove(poolData.pool, entity);
 			}
 		}
+	}
+
+
+	/**
+	 * Remove every component from multiple entities.
+	 *
+	 * Params: entities = valid entities to remove all components from.
+	 */
+	@safe pure
+	void removeAll(in T[] entities)
+	{
+		import std.algorithm : each;
+		entities.each!(e => removeAll(e));
 	}
 
 
@@ -779,8 +783,10 @@ private:
 	T spawn()
 	{
 		import std.range : back;
+
 		enforce!MaximumEntitiesReachedException(entities.length < entityMask, "Maximum entities reached!");
 		entities ~= entities.length.to!T;
+
 		return entities.back;
 	}
 
@@ -797,10 +803,11 @@ private:
 	T revive()
 		in(queue != entityNull, "Must have dead entities to revive!")
 	{
-		const batch = batchOf(entities[queue]);
-		const id = queue;
+		immutable batch = batchOf(entities[queue]);
+		immutable id = queue;
 		queue = idOf(entities[id]);
 		entities[id] = (id | (batch << entityShift)).to!T;
+
 		return entities[id];
 	}
 
@@ -819,7 +826,8 @@ private:
 	inout(T) updateBatch(const inout(T) entity) const inout
 		in(isValid(entity))
 	{
-		const T batch = batchOf(entity);
+		immutable T batch = batchOf(entity);
+
 		return batch == batchMask ? 0 : (batch + 1).to!T;
 	}
 
@@ -851,7 +859,7 @@ private:
 	struct PoolData
 	{
 		SparseSet!(T, idBitAmount) pool;
-		@safe pure void delegate(SparseSet!(T, idBitAmount), const inout(T)) remove;
+		@safe pure void delegate(SparseSet!(T, idBitAmount), in T) remove;
 	}
 
 	T[] entities;
@@ -1351,6 +1359,17 @@ unittest
 
 	auto exception = expectThrows!InvalidEntityException(registry.removeAll(registry.entityNull));
 	assertEquals("Cannot remove components from an invalid entity!", exception.msg);
+
+	auto entities = registry.create(3);
+	registry.add!(Position, Velocity, Colision)(entities);
+	registry.removeAll(entities);
+
+	foreach (e; entities)
+	{
+		assertFalse(registry.contains!(Position)(e));
+		assertFalse(registry.contains!(Velocity)(e));
+		assertFalse(registry.contains!(Colision)(e));
+	}
 }
 
 

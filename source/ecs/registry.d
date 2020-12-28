@@ -36,17 +36,17 @@ public final class PoolDoesNotExistException : PoolDataException
 public final class BasicRegistry(T, T idBitAmount)
 	if(isEntityType!T && __traits(compiles, SparseSet!(T, idBitAmount)))
 {
+	import ecs.component : isComponent, componentId;
 	import std.conv : to;
 	import std.exception : enforce;
 	import std.meta : allSatisfy;
-	import std.traits : Fields;
-	import ecs.component : isComponent, componentId;
 	import ecs.pool : Pool;
+	import std.traits : Fields;
+	import std.typecons : Flag, Yes, No;
 
 	mixin genEntityBitMasks!(T, idBitAmount);
 
 public:
-	// TODO: containsAny
 	// TODO: modifyOrAdd
 	// TODO: getOrNull (must return null ptr with failure)
 	// TODO: iterators
@@ -415,7 +415,6 @@ public:
 		if (isComponent!C)
 	{
 		import std.algorithm : each;
-		import std.typecons : No, Yes;
 
 		/**
 		 * Checks if an entity, valid or not, contains a component. \
@@ -490,16 +489,43 @@ public:
 	}
 
 
+	template contains(RangeC ...)
+		if (RangeC.length > 1)
+	{
+		auto contains(in T entity)
+		{
+			return containsAll!(RangeC)(entity);
+		}
+
+
+		auto contains(in T entity, in RangeC components)
+		{
+			return containsAll(entity, components);
+		}
+
+
+		auto contains(in T[] entities)
+		{
+			return containsAll!(RangeC)(entities);
+		}
+
+
+		auto contains(in T[] entities, in RangeC components)
+		{
+			return containsAll(entities, components);
+		}
+	}
+
+
 	/**
 	 * Contains components. \
 	 *
 	 * Params: RangeC = valid components to check.
 	 */
-	template contains(RangeC ...)
+	template containsAll(RangeC ...)
 		if (RangeC.length > 1)
 	{
 		import std.algorithm : each;
-		import std.typecons : No, Yes;
 
 		/**
 		 * Checks if an entity, valid or not, contains all components. \
@@ -511,7 +537,7 @@ public:
 		 *
 		 * Returns: `true` if all entities contain all components, `false` otherwise.
 		 */
-		auto contains(in T entity)
+		auto containsAll(in T entity)
 		{
 			foreach (C; RangeC)
 			{
@@ -534,7 +560,7 @@ public:
 		 *
 		 * Returns: `true` if the entity contains all components, `false` otherwise.
 		 */
-		auto contains(in T entity, in RangeC components)
+		auto containsAll(in T entity, in RangeC components)
 		{
 			foreach (ref component; components)
 			{
@@ -555,9 +581,9 @@ public:
 		 *
 		 * Returns: `true` if all entities contain all components, `false` otherwise.
 		 */
-		auto contains(in T[] entities)
+		auto containsAll(in T[] entities)
 		{
-			return entities.each!(e => contains!(RangeC)(e) ? Yes.each : No.each) == Yes.each;
+			return entities.each!(e => containsAll!(RangeC)(e) ? Yes.each : No.each) == Yes.each;
 		}
 
 
@@ -573,9 +599,9 @@ public:
 		 *
 		 * Returns: `true` if all entities contain all components, `false` otherwise.
 		 */
-		auto contains(in T[] entities, in RangeC components)
+		auto containsAll(in T[] entities, in RangeC components)
 		{
-			return entities.each!(e => contains!(RangeC)(e, components) ? Yes.each : No.each) == Yes.each;
+			return entities.each!(e => containsAll!(RangeC)(e, components) ? Yes.each : No.each) == Yes.each;
 		}
 	}
 
@@ -1127,17 +1153,42 @@ unittest
 	assertFalse(registry.contains!Position(e0));
 
 	registry.add!Position(e0, 1, 1);
-	assertFalse(registry.contains!(Position, Velocity)(e0));
+	assertTrue(registry.contains!(Position)(e0));
 
 	registry.add!Velocity(e0, 3, 4);
-	assertTrue(registry.contains!(Position, Velocity)(e0));
+	assertTrue(registry.contains!(Velocity)(e0));
 
 	registry.add(e1, Position(1, 1), Velocity(3, 4));
-	assertTrue(registry.contains([e0, e1], Position(1, 1), Velocity(3, 4)));
-	assertFalse(registry.contains([e0, e1, registry.entityNull], Position(1, 1), Velocity(3, 4)));
+	assertTrue(registry.contains([e0, e1], Position(1, 1)));
+	assertFalse(registry.contains([e0, e1, registry.entityNull], Position(1, 1)));
 
 	registry.discard(e0);
-	assertFalse(registry.contains!(Position, Velocity)(e0));
+	assertFalse(registry.contains!(Position)(e0));
+	assertFalse(registry.pools[componentId!Position].pool.contains(e0));
+}
+
+
+@safe pure
+@("registry: containsAll")
+unittest
+{
+	import ecs.component : componentId;
+	auto registry = new Registry();
+	auto e0 = registry.create();
+	auto e1 = registry.create();
+
+	registry.add!Position(e0, 1, 1);
+	assertFalse(registry.containsAll!(Position, Velocity)(e0));
+
+	registry.add!Velocity(e0, 3, 4);
+	assertTrue(registry.containsAll!(Position, Velocity)(e0));
+
+	registry.add(e1, Position(1, 1), Velocity(3, 4));
+	assertTrue(registry.containsAll([e0, e1], Position(1, 1), Velocity(3, 4)));
+	assertFalse(registry.containsAll([e0, e1, registry.entityNull], Position(1, 1), Velocity(3, 4)));
+
+	registry.discard(e0);
+	assertFalse(registry.containsAll!(Position, Velocity)(e0));
 	assertFalse(registry.pools[componentId!Position].pool.contains(e0));
 }
 

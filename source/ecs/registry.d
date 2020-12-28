@@ -580,6 +580,94 @@ public:
 	}
 
 
+	template containsAny(RangeC ...)
+		if (RangeC.length > 1)
+	{
+		import std.algorithm : each;
+		import std.typecons : No, Yes;
+
+
+		/**
+		 * Checks if an entity, valid or not, contains any component. \
+		 * \
+		 * If the entity isn't valid or a component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params:
+		 *     components = valid components to check.
+		 *     entity = entity to search.
+		 *
+		 * Returns: `true` if the entity contains any component, `false` otherwise.
+		 */
+		auto containsAny(in T entity)
+		{
+			foreach (C; RangeC)
+			{
+				if (contains!C(entity))
+					return true;
+			}
+			return false;
+		}
+
+
+		/**
+		 * Checks if an entity, valid or not, contains any component. \
+		 * \
+		 * If the entity isn't valid or a component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params:
+		 *     components = valid components to check.
+		 *     entity = entity to search.
+		 *
+		 * Returns: `true` if the entity contains any component, `false` otherwise.
+		 */
+		auto containsAny(in T entity, in RangeC components)
+		{
+			foreach (ref component; components)
+			{
+				if (contains(entity, component))
+					return true;
+			}
+			return false;
+		}
+
+
+		/**
+		 * Checks if all entities, valid or not, contain any component. \
+		 * \
+		 * If any entity isn't valid or a component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params: entities = entities to search.
+		 *
+		 * Returns: `true` if all entities contain any component, `false` otherwise.
+		 */
+		auto containsAny(in T[] entities)
+		{
+			return entities.each!(e => containsAny!(RangeC)(e) ? Yes.each : No.each) == Yes.each;
+		}
+
+
+		/**
+		 * Checks if all entities, valid or not, contain any component. \
+		 * \
+		 * If any entity isn't valid or a component pool doesn't exist or the
+		 *     entity does not contain it, it returns `false`!
+		 *
+		 * Params:
+		 *     components = valid components to check.
+		 *     entities = entities to search.
+		 *
+		 * Returns: `true` if all entities contain any component, `false` otherwise.
+		 */
+		auto containsAny(in T[] entities, in RangeC components)
+		{
+			return entities.each!(e => containsAny!(RangeC)(e, components) ? Yes.each : No.each) == Yes.each;
+		}
+	}
+
+
 	/**
 	 * Remove a component. \
 	 * A component cannot be removed if an entity isn't valid or the component
@@ -1050,6 +1138,31 @@ unittest
 
 	registry.discard(e0);
 	assertFalse(registry.contains!(Position, Velocity)(e0));
+	assertFalse(registry.pools[componentId!Position].pool.contains(e0));
+}
+
+
+@safe pure
+@("registry: containsAny")
+unittest
+{
+	import ecs.component : componentId;
+	auto registry = new Registry();
+	auto e0 = registry.create();
+	auto e1 = registry.create();
+
+	registry.add!Position(e0, 1, 1);
+	assertTrue(registry.containsAny!(Position, Velocity)(e0));
+
+	registry.add!Velocity(e0, 3, 4);
+	assertTrue(registry.containsAny!(Position, Velocity)(e0));
+
+	registry.add(e1, Position(1, 1), Velocity(3, 4));
+	assertTrue(registry.containsAny([e0, e1], Position(1, 1), Velocity(3, 4)));
+	assertFalse(registry.containsAny([e0, e1, registry.entityNull], Position(1, 1), Velocity(3, 4)));
+
+	registry.discard(e0);
+	assertFalse(registry.containsAny!(Position, Velocity)(e0));
 	assertFalse(registry.pools[componentId!Position].pool.contains(e0));
 }
 
